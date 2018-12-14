@@ -26,6 +26,8 @@ app.use(cors());
 
 app.get('/location', getLocation);
 
+app.get('/weather', getWeather);
+
 // app.get('/weather', (req, resp) => {
 //   return weatherHandler(req.query.data.latitude, req.query.data.longitude)
 //     .then( (latLong) => {
@@ -61,7 +63,7 @@ let restaurantArray = [];
 // Handlers
 
 function getLocation(req, res) {
-  let lookupHander = {
+  let lookupHandler = {
     cacheHit: (data) => {
       console.log('Location retrieve from DB');
       res.status(200).send(data.rows[0]);
@@ -75,7 +77,7 @@ function getLocation(req, res) {
     }
   }
 
-  lookupLocation(req.query.data, lookupHander);
+  lookupLocation(req.query.data, lookupHandler);
 }
 
 function lookupLocation (query, handler) {
@@ -114,6 +116,74 @@ function fetchLocation (query) {
       res.send(err);
     })
 }
+
+function getWeather(req, res) { // Our req represents the location object
+  let lookupHandler = {
+    cacheHit: (data) => {
+      console.log('Weather retrieved from db');
+      res.status(200).send(data.rows[0]);
+    },
+    cacheMiss: (query) => {
+      return fetchWeather(query)
+      .then(result => {
+        res.send(result)
+      })
+      .catch(error => console.log(error))
+    }
+  };
+  lookupWeather(req.query.data.formatted_query, req.query.data.latitude, req.query.data.longitude, lookupHandler);
+} 
+
+function lookupWeather(name, latitude, longitude, handler) {
+  const SQL = 'SELECT * FROM weather WHERE id=$1';
+  const values =[name]; // WE're going to need to send an id for location
+  return client.query(SQL, values)
+  .then(data => {
+    if(data.rowCount) {
+      handler.cacheHit(data);
+      
+    } else {
+      handler.cacheMiss(name, latitude, longitude);
+    }
+  }) 
+  .catch(err => console.log(err));
+}
+
+function fetchWeather(name, lat, long) {
+  const URL = `https://api.darksky.net/forecast/${process.env.DARKSKY_API_KEY}/${lat},${long}`;
+  return superagent.get(URL)
+  .then(result => {
+    console.log('Weather retrieved from darksky');
+    const dailyForecast = result.body.daily.data;
+      dailyForecast.map( ele => {
+        new Forecast(ele);
+      });
+      // Storing database
+      let SQL = `INSERT INTO weather 
+                (city, weekly_forecast)
+                VALUES($1, $2)`;
+
+     return client.query(SQL, [name, weeklyForecast])
+     .then(() => {
+       return weeklyForecast;
+     })
+  })
+  .catch(err => console.log(err));
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // function latLongHandler (query) {
 //   let locationData = `https://maps.googleapis.com/maps/api/geocode/json?address=${query}&key=${process.env.GEOCODE_API_KEY}`;
