@@ -1,6 +1,8 @@
 'use strict';
 
+//=============
 // Dependencies
+//=============
 
 const express = require('express');
 const cors = require('cors');
@@ -11,30 +13,30 @@ require('dotenv').config();
 
 const PORT = process.env.PORT || 3000;
 
-// PostgreSQL
+//======================
+// Database - PostgreSQL
+//======================
+
 const client = new pg.Client(process.env.DATABASE_URL);
 client.connect();
 client.on('error', err => console.log(err));
 
-// App
+//============
+// Application
+//============
 
 const app = express();
 
 app.use(cors());
 
-// Routes
+//======
+// Paths
+//======
 
 app.get('/location', getLocation);
 
 app.get('/weather', getWeather);
 
-// app.get('/weather', (req, resp) => {
-//   return weatherHandler(req.query.data.latitude, req.query.data.longitude)
-//     .then( (latLong) => {
-//       resp.send(latLong);
-//     });
-
-// });
 
 // app.get('/yelp', (req, resp) => {
 //   return yelpHandler(req.query.data)
@@ -50,30 +52,34 @@ app.get('/weather', getWeather);
 //     });
 // });
 
-// app.get('/*', function(req, resp){
-//   resp.status(500).send('Don\'t look behind the curtain');
-// });
+app.get('/*', function(req, resp){
+  resp.status(500).send('Don\'t look behind the curtain');
+});
 
+//=================
 // Global Variables
+//=================
+
 let weeklyForecast = [];
 let filmArray = [];
 let restaurantArray = [];
 
-
+//=========
 // Handlers
+//=========
 
 function getLocation(req, res) {
   let lookupHandler = {
     cacheHit: (data) => {
-      console.log('Location retrieve from DB');
-      res.status(200).send(data.rows[0]);
+      console.log('**Location: Retrieved from DB');
+      res.status(200).send(data);
     },
     cacheMiss: (query) => {
       return fetchLocation(query)
         .then( result => {
           res.send(result);
         })
-        .catch(error=>console.log('Error in getLocation()', error))
+        .catch(error=>console.log(error))
     }
   }
 
@@ -81,14 +87,17 @@ function getLocation(req, res) {
 }
 
 function lookupLocation (query, handler) {
+  console.log('**Location: Searching for record in DB');
   const SQL = 'SELECT * FROM locations WHERE search_query=$1';
   const values = [query];
 
   return client.query(SQL, values)
     .then(data => {
       if(data.rowCount) {
-        handler.cacheHit(data);
+        console.log('**Location: Found in DB');
+        handler.cacheHit(data.rows[0]);
       } else {
+        console.log('**Location: Not found in DB, requesting from Google');
         handler.cacheMiss(query);
       }
     })
@@ -100,14 +109,17 @@ function fetchLocation (query) {
 
   return superagent.get(URL)
     .then( result => {
-      console.log('Location retrieved from Google Geocode API');
+      console.log('**Location: Retrieved from Google');
       let location = new Location(result.body.results[0]);
+
       let SQL = `INSERT INTO locations
                 (search_query, formatted_query, latitude, longitude) 
                 VALUES($1, $2, $3, $4)`;
       
-      return client.query(SQL, [query, location.formatted_query, location.latitude, location.latitude])
+      console.log('**Location: Storing in DB')
+      return client.query(SQL, [query, location.formatted_query, location.latitude, location.longitude])
         .then(() => {
+          console.log('**Location: Finished storing in DB');
           return location;
         })
     })
@@ -120,11 +132,17 @@ function fetchLocation (query) {
 function getWeather(req, res) { // Our req represents the location object
   let lookupHandler = {
     cacheHit: (data) => {
-      console.log('Weather retrieved from db');
-      res.status(200).send(data.rows[0]);
+      console.log('**Weather: Retrieved from DB');
+
+      // Parse data
+      let result = data.rows[0].weekly_forecast.map( day => {
+        return JSON.parse(day);
+      })
+
+      res.status(200).send(result);
     },
-    cacheMiss: (query) => {
-      return fetchWeather(query)
+    cacheMiss: (name, latitude, longitude) => {
+      return fetchWeather(name, latitude, longitude)
       .then(result => {
         res.send(result)
       })
@@ -135,14 +153,17 @@ function getWeather(req, res) { // Our req represents the location object
 } 
 
 function lookupWeather(name, latitude, longitude, handler) {
-  const SQL = 'SELECT * FROM weather WHERE id=$1';
+  console.log('**Weather: Searching for record in DB');
+  const SQL = 'SELECT * FROM weather WHERE city=$1';
   const values =[name]; // WE're going to need to send an id for location
   return client.query(SQL, values)
   .then(data => {
     if(data.rowCount) {
+      console.log('**Weather: Found in DB');
       handler.cacheHit(data);
       
     } else {
+      console.log('**Weather: Not found in DB, requesting from Darksky');
       handler.cacheMiss(name, latitude, longitude);
     }
   }) 
@@ -151,22 +172,27 @@ function lookupWeather(name, latitude, longitude, handler) {
 
 function fetchWeather(name, lat, long) {
   const URL = `https://api.darksky.net/forecast/${process.env.DARKSKY_API_KEY}/${lat},${long}`;
+  
   return superagent.get(URL)
   .then(result => {
-    console.log('Weather retrieved from darksky');
+    console.log('**Weather: Retrieved from Darksky');
+    
+    weeklyForecast = []; // Clear previous weather
     const dailyForecast = result.body.daily.data;
-      dailyForecast.map( ele => {
-        new Forecast(ele);
-      });
-      // Storing database
-      let SQL = `INSERT INTO weather 
-                (city, weekly_forecast)
-                VALUES($1, $2)`;
+    dailyForecast.map( ele => {
+      new Forecast(ele);
+    });
+    
+    console.log('**Weather: Storing in DB');
+    let SQL = `INSERT INTO weather 
+              (city, weekly_forecast)
+              VALUES($1, $2)`;
 
-     return client.query(SQL, [name, weeklyForecast])
-     .then(() => {
-       return weeklyForecast;
-     })
+    return client.query(SQL, [name, weeklyForecast])
+      .then(() => {
+        console.log('**Weather: Finished storing in DB');
+        return weeklyForecast;
+      })
   })
   .catch(err => console.log(err));
 }
@@ -184,30 +210,6 @@ function fetchWeather(name, lat, long) {
 
 
 
-
-// function latLongHandler (query) {
-//   let locationData = `https://maps.googleapis.com/maps/api/geocode/json?address=${query}&key=${process.env.GEOCODE_API_KEY}`;
-  
-//   return superagent.get(locationData)
-//     .then( geoData => {
-//       const location = new Location(geoData.body.results[0]);
-//       return location;
-//     })
-//     .catch( err => console.error(err));
-// }
-
-// function weatherHandler (lat, long) {
-//   let weatherData = `https://api.darksky.net/forecast/${process.env.DARKSKY_API_KEY}/${lat},${long}`;
-
-//   return superagent.get(weatherData)
-//     .then( forecastData => {
-//       const dailyForecast = forecastData.body.daily.data;
-//       dailyForecast.map( ele => {
-//         new Forecast(ele);
-//       });
-//       return weeklyForecast;
-//     })
-// }
 
 // function yelpHandler (query) {
 //   let lat = query.latitude;
@@ -257,7 +259,9 @@ function fetchWeather(name, lat, long) {
 //     });
 // }
 
+//=============
 // Constructors
+//=============
 
 function Location (location, query) {
   this.search_query = query;
@@ -295,7 +299,9 @@ function Film (video) {
   this.released_on = video.release_date;
 }
 
-// Checks
+//=========
+// Listener
+//=========
 
 app.listen(PORT, () => {
   console.log('app is up on port 3000');
