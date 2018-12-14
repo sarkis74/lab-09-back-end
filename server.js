@@ -37,6 +37,7 @@ app.get('/location', getLocation);
 
 app.get('/weather', getWeather);
 
+app.get('/yelp', getYelp);
 
 // app.get('/yelp', (req, resp) => {
 //   return yelpHandler(req.query.data)
@@ -149,13 +150,15 @@ function getWeather(req, res) { // Our req represents the location object
       .catch(error => console.log(error))
     }
   };
-  lookupWeather(req.query.data.formatted_query, req.query.data.latitude, req.query.data.longitude, lookupHandler);
+  let query = req.query.data;
+  lookupWeather(query.formatted_query, query.latitude, query.longitude, lookupHandler);
 } 
 
 function lookupWeather(name, latitude, longitude, handler) {
   console.log('**Weather: Searching for record in DB');
   const SQL = 'SELECT * FROM weather WHERE city=$1';
-  const values =[name]; // WE're going to need to send an id for location
+  const values =[name];
+
   return client.query(SQL, values)
   .then(data => {
     if(data.rowCount) {
@@ -197,7 +200,69 @@ function fetchWeather(name, lat, long) {
   .catch(err => console.log(err));
 }
 
+function getYelp(req, res) {
+  let lookupHandler = {
+    cacheHit: (data) => {
+      console.log('**Yelp: Retrieved from DB');
+      res.status(200).send(data); //TODO: Data may need to be parsed
+    },
+    cacheMiss: (name, latitude, longitude) => {
+      return fetchYelp(name, latitude, longtitude)
+        .then(result => {
+          res.send(result);
+        })
+        .catch(err => console.log(err));
+    }
+  };
+  let query = req.query.data;
+  lookupYelp(query.formatted_query, query.latitude, query.longitude, lookupHandler);
+}
 
+function lookupYelp(name, latitude, longitude, handler) {
+  console.log('**Yelp: Searching for record in DB');
+  const SQL = 'SELECT * FROM restaurants WHERE city=$1';
+  const values = [name];
+
+  return client.query(SQL, values)
+    .then(data => {
+      if(data.rowCount) {
+        console.log('**Yelp: Found in DB');
+        handler.cacheHit(data);
+      } else {
+        console.log('**Yelp: Not found in DB, requesting from Yelp');
+        handler.cacheMiss(name, latitude, longitude);
+      }
+    })
+    .catch(err => console.log(err));
+}
+
+function fetchYelp(name, lat, long) {
+  const URL = `https://api.yelp.com/v3/businesses/search?term=restaurants&latitude=${lat}&longitude=${long}&limit=20`;
+
+  return superagent.get(URL)
+    .set('Authorization', `Bearer ${process.env.YELP_API_KEY}`)
+    .then(result => {
+      console.log('**Yelp: Retrieved from Yelp');
+
+      restaurantArray =[];
+      const restaurantData = JSON.parse(restaurantData.text);
+      restaurantData.businesses.map(business => {
+        new Restaurant(business);
+      })
+
+      console.log('Yelp: Storing in DB');
+      let SQL = `INSERT INTO restaurants
+                (city, restaurant_array)
+                VALUES($1, $2)`;
+
+      return client.query(SQL, [name, restaurantArray])
+        .then(() => {
+          console.log('**Yelp: Finished storing in DB');
+          return restaurantArray;
+        })
+    })
+    .catch(err => console.log(err));
+}
 
 
 
