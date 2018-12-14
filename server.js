@@ -204,10 +204,14 @@ function getYelp(req, res) {
   let lookupHandler = {
     cacheHit: (data) => {
       console.log('**Yelp: Retrieved from DB');
-      res.status(200).send(data); //TODO: Data may need to be parsed
+      let result = data.rows[0].restaurant_array.map(restaurant => {
+        return JSON.parse(restaurant);
+      })
+
+      res.status(200).send(result); //TODO: Data may need to be parsed
     },
     cacheMiss: (name, latitude, longitude) => {
-      return fetchYelp(name, latitude, longtitude)
+      return fetchYelp(name, latitude, longitude)
         .then(result => {
           res.send(result);
         })
@@ -245,7 +249,7 @@ function fetchYelp(name, lat, long) {
       console.log('**Yelp: Retrieved from Yelp');
 
       restaurantArray =[];
-      const restaurantData = JSON.parse(restaurantData.text);
+      const restaurantData = JSON.parse(result.text);
       restaurantData.businesses.map(business => {
         new Restaurant(business);
       })
