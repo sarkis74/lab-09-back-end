@@ -39,6 +39,8 @@ app.get('/weather', getWeather);
 
 app.get('/yelp', getYelp);
 
+app.get('/movies', getMovies);
+
 // app.get('/yelp', (req, resp) => {
 //   return yelpHandler(req.query.data)
 //     .then( (yelp) => {
@@ -64,6 +66,7 @@ app.get('/*', function(req, resp){
 let weeklyForecast = [];
 let filmArray = [];
 let restaurantArray = [];
+let movieArray = [];
 
 //=========
 // Handlers
@@ -268,6 +271,80 @@ function fetchYelp(name, lat, long) {
     .catch(err => console.log(err));
 }
 
+function getMovies(req, res) {
+  let lookupHandler = {
+    cacheHit: (data) => {
+    console.log('**Movies: Retrieved from DB');
+    let result = data.rows[0].movie_array.map(movie => {
+      return JSON.parse(movie);
+    })
+    res.status(200).send(result);
+    },
+    cacheMiss: (name) => {
+      return fetchMovies(name) 
+      .then(result => {
+      res.send(result);
+    })
+    .catch(err => console.log(err));
+  }
+ };
+ let query = req.query.data;
+ lookupMovies(query.formatted_query, query.latitude, query.longitude, lookupHandler);
+}
+
+function lookupMovies(name, latitude, longitude, handler) {
+  console.log('**Movies: Searching for record in DB');
+  const SQL = `SELECT * FROM movies WHERE city=$1`;
+  const values = [name];
+
+  return client.query(SQL, values)
+  .then(data => {
+    if(data.rowCount) {
+      console.log('**Movies: found in DB');
+      handler.cacheHit(data);
+    } else {
+      console.log('**Movies: Not found in DB, requesting from Movie DB');
+      handler.cacheMiss(name, latitude, longitude);
+    }
+  })
+  .catch(err => console.log(err));
+}
+
+function fetchMovies(name) {
+  let citySplice = name.split(',');
+  const URL = `https://api.themoviedb.org/3/search/movie?api_key=${process.env.MOVIES_API_KEY}&query=${citySplice[0]}, ${citySplice[1]}`;
+
+  return superagent.get(URL)
+  .then(result => {
+    console.log('**Movies: Retrieved from Movie DB'); 
+    let films = result.body.results;
+    films.sort( function(a, b) {
+      if(a.popularity > b.popularity) return -1;
+      if(b.popularity > a.popularity) return 1;
+      return 0;
+    })
+
+    let numFilms = 20;
+    if(films.length < 20) numFilms = films.length;
+
+    filmArray = [];
+    for(let i = 0; i < numFilms; i++) {
+      filmArray.push(new Film(films[i]));
+    }
+    console.log('**Movies: Storing in DB');
+    let SQL = `INSERT INTO movies
+              (city, movie_array)
+              VALUES($1, $2)`;
+    
+    return client.query(SQL, [name, movieArray])
+    .then(()=> {
+      console.log('**Movies: Finished storing in DB');
+      console.log(movieArray);
+      return movieArray;
+    })
+  })
+  .catch(err => console.log(err));
+}
 
 
 
