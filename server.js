@@ -41,19 +41,7 @@ app.get('/yelp', getYelp);
 
 app.get('/movies', getMovies);
 
-// app.get('/yelp', (req, resp) => {
-//   return yelpHandler(req.query.data)
-//     .then( (yelp) => {
-//       resp.send(yelp);
-//     });
-// });
-
-// app.get('/movies', (req, resp) => {
-//   return movieHandler(req.query.data)
-//     .then( (movies) => {
-//       resp.send(movies);
-//     });
-// });
+app.get('/meetups', getMeetup);
 
 app.get('/*', function(req, resp){
   resp.status(500).send('Don\'t look behind the curtain');
@@ -66,12 +54,24 @@ app.get('/*', function(req, resp){
 let weeklyForecast = [];
 let filmArray = [];
 let restaurantArray = [];
-let movieArray = [];
+let meetupArray = [];
+
+const timeout = {
+  weather: 15000,
+  meetups: 86400000,
+  yelp: 86400000,
+  hiking: 86400000,
+  movies: 86400000
+}
+
 
 //=========
 // Handlers
 //=========
 
+//=================
+// Location
+//=================
 function getLocation(req, res) {
   let lookupHandler = {
     cacheHit: (data) => {
@@ -133,6 +133,9 @@ function fetchLocation (query) {
     })
 }
 
+//=================
+// Weather
+//=================
 function getWeather(req, res) { // Our req represents the location object
   let lookupHandler = {
     cacheHit: (data) => {
@@ -150,7 +153,7 @@ function getWeather(req, res) { // Our req represents the location object
       .then(result => {
         res.send(result)
       })
-      .catch(error => console.log(error))
+      .catch(err => console.log('========================== error in getWeather ==============================', err));
     }
   };
   let query = req.query.data;
@@ -173,7 +176,7 @@ function lookupWeather(name, latitude, longitude, handler) {
       handler.cacheMiss(name, latitude, longitude);
     }
   }) 
-  .catch(err => console.log(err));
+  .catch(err => console.log('========================== error in lookupWeather ==============================', err));
 }
 
 function fetchWeather(name, lat, long) {
@@ -200,9 +203,12 @@ function fetchWeather(name, lat, long) {
         return weeklyForecast;
       })
   })
-  .catch(err => console.log(err));
+  .catch(err => console.log('========================== error in fetchWeather ==============================', err));
 }
 
+//=================
+// Yelp
+//=================
 function getYelp(req, res) {
   let lookupHandler = {
     cacheHit: (data) => {
@@ -218,7 +224,7 @@ function getYelp(req, res) {
         .then(result => {
           res.send(result);
         })
-        .catch(err => console.log(err));
+        .catch(err => console.log('========================== error in getYelp ==============================', err));
     }
   };
   let query = req.query.data;
@@ -240,7 +246,7 @@ function lookupYelp(name, latitude, longitude, handler) {
         handler.cacheMiss(name, latitude, longitude);
       }
     })
-    .catch(err => console.log(err));
+    .catch(err => console.log('========================== error in lookupYelp ==============================', err));
 }
 
 function fetchYelp(name, lat, long) {
@@ -268,9 +274,12 @@ function fetchYelp(name, lat, long) {
           return restaurantArray;
         })
     })
-    .catch(err => console.log(err));
+    .catch(err => console.log('========================== error in fetchYelp ==============================', err));
 }
 
+//=================
+// Movies
+//=================
 function getMovies(req, res) {
   let lookupHandler = {
     cacheHit: (data) => {
@@ -285,7 +294,7 @@ function getMovies(req, res) {
       .then(result => {
       res.send(result);
     })
-    .catch(err => console.log(err));
+    .catch(err => console.log('========================== error in getMovies ==============================', err));
   }
  };
  let query = req.query.data;
@@ -294,7 +303,7 @@ function getMovies(req, res) {
 
 function lookupMovies(name, latitude, longitude, handler) {
   console.log('**Movies: Searching for record in DB');
-  const SQL = `SELECT * FROM movies WHERE city=$1`;
+  const SQL = 'SELECT * FROM movies WHERE city=$1';
   const values = [name];
 
   return client.query(SQL, values)
@@ -307,7 +316,7 @@ function lookupMovies(name, latitude, longitude, handler) {
       handler.cacheMiss(name, latitude, longitude);
     }
   })
-  .catch(err => console.log(err));
+  .catch(err => console.log('========================== error in lookupMovies ==============================', err));
 }
 
 function fetchMovies(name) {
@@ -339,71 +348,78 @@ function fetchMovies(name) {
     return client.query(SQL, [name, movieArray])
     .then(()=> {
       console.log('**Movies: Finished storing in DB');
-      console.log(movieArray);
       return movieArray;
     })
   })
-  .catch(err => console.log(err));
+  .catch(err => console.log('========================== error in fetchMovies ==============================', err));
+};
+
+//=================
+// Meetups
+//=================
+function getMeetup (req, res) {
+  let lookupHandler = {
+    cacheHit: data => {
+      console.log('**Meetups: Retrieved from DB');
+      let result = data.rows;
+
+      res.status(200).send(result)
+    },
+    cacheMiss: (name, latitude, longitude, id) => {
+      return fetchMeetup(name, latitude, longitude, id)
+      .then(result => {
+        res.send(result);
+      })
+      .catch(err => console.log('========================== error in getMeetup ==============================', err));
+    }
+  };
+  let query = req.query.data;
+  lookupMeetup(query.formatted_query, query.latitude, query.longitude, query.id, 'meetups', lookupHandler);
 }
 
+function lookupMeetup(name, latitude, longitude, handler) {
+  console.log('**Meetups: Searching for record in DB');
+  const SQL = `SELECT * FROM meetups WHERE city=$1`;
+  const values = [name];
+ 
+  return client.query(SQL, values)
+  .then(data => {
+    if(data.rowCount) {
+      console.log('**Meetups: found in DB');
+      handler.cacheHit(data);
+    } else {
+      console.log('**Meetups: Not found in DB, requesting from Meetup DB');
+      handler.cacheMiss(name, latitude, longitude);
+    }
+  })
+  .catch(err => console.log('========================== error in lookupMeetup ==============================', err));
+}
 
+function fetchMeetup(name) {
+  const URL = `https://api.meetup.com/find/events?key=${process.env.MEETUP_API_KEY}&city=${name}&sign=true`;
+ 
+  return superagent.get(URL)
+    .then(result => {
+      console.log('**Meetup: Retrieved from Meetup');
 
+      meetupArray = JSON.parse(result.text);
+      meetupArray.results.map(meetup => {
+        new Meetup(meetup);
+      })
 
+      console.log('Meetup: Storing in DB');
+      let SQL = `INSERT INTO meetups
+                (city, meetup_array)
+                VALUES($1, $2)`;
 
-
-
-
-
-
-
-
-// function yelpHandler (query) {
-//   let lat = query.latitude;
-//   let long = query.longitude;
-
-//   let yelpData = `https://api.yelp.com/v3/businesses/search?term=restaurants&latitude=${lat}&longitude=${long}&limit=20`;
-
-//   return superagent.get(yelpData)
-//     // This .set() adds our API KEY
-//     .set('Authorization', `Bearer ${process.env.YELP_API_KEY}`)
-//     .then( restaurantData => {
-//       // The return is a mess that needs to be parsed
-//       restaurantData = JSON.parse(restaurantData.text);
-//       restaurantData.businesses.map( business => {
-//         new Restaurant(business);
-//       })
-//       return restaurantArray;
-//     })
-//     .catch( err => {
-//       console.error(err)
-//     });
-// }
-
-// function movieHandler (query) {
-//   let citySplice = query.formatted_query.split(',');
-//   let movieData = `https://api.themoviedb.org/3/search/movie?api_key=${process.env.MOVIES_API_KEY}&query=${citySplice[0]}, ${citySplice[1]}`;
-  
-//   return superagent.get(movieData)
-//     .then( filmData => {
-//       let films = filmData.body.results;//array of results
-//       // Sort Films by Popularity
-//       films.sort( function (a,b) {
-//         if( a.popularity > b.popularity) return -1;
-//         if( b.popularity > a.popularity) return 1;
-//         return 0;
-//       });
-//       //If # of films less than 20
-//       let numFilms = 20;
-//       if(films.length < 20) numFilms = films.length;
-//       //For Loop over first 20 films
-//       filmArray = [];
-//       for(let i = 0 ; i < numFilms ; i++) {
-//         //create film objects and push into array.
-//         filmArray.push(new Film (films[i]));
-//       }
-//       return filmArray;
-//     });
-// }
+      return client.query(SQL, [name, meetupArray])
+        .then(() => {
+          console.log('**Meetup: Finished storing in DB');
+          return meetupArray;
+        })
+    })
+    .catch(err => console.log('========================== error in fetchMeetup ==============================', err));
+}
 
 //=============
 // Constructors
@@ -443,6 +459,13 @@ function Film (video) {
   this.image_url = 'https://image.tmdb.org/t/p/w200_and_h300_bestv2/' + video.poster_path;
   this.popularity = video.popularity;
   this.released_on = video.release_date;
+}
+
+function Meetup(meetup) {
+  this.link = meetup.link;
+  this.name = meetup.name;
+  this.creation_date = meetup.creation_date;
+  this.host = meetup.host;
 }
 
 //=========

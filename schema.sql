@@ -2,6 +2,7 @@ DROP TABLE IF EXISTS locations;
 DROP TABLE IF EXISTS weather;
 DROP TABLE IF EXISTS restaurants;
 DROP TABLE IF EXISTS movies;
+DROP TABLE IF EXISTS meetups;
 
 CREATE TABLE locations (
   id SERIAL PRIMARY KEY,
@@ -27,4 +28,10 @@ CREATE TABLE movies (
   id SERIAL PRIMARY KEY,
   city VARCHAR(255),
   movie_array TEXT[]
+);
+
+CREATE TABLE meetups (
+  id SERIAL PRIMARY KEY,
+  city VARCHAR(255),
+  meetup_array TEXT[]
 );
